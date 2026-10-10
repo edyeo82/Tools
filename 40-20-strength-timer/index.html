@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Custom Interval Timer</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .card {
+    width: min(92vw, 540px);
+    text-align: center;
+    padding: 26px;
+    box-sizing: border-box;
+  }
+  #phase {
+    font-size: clamp(30px, 8vw, 54px);
+    font-weight: 800;
+    letter-spacing: .04em;
+    margin: 6px 0;
+  }
+  #time {
+    font-size: clamp(86px, 24vw, 150px);
+    font-weight: 900;
+    line-height: 1;
+    margin: 10px 0 14px;
+  }
+  #round {
+    font-size: 20px;
+    opacity: .75;
+    margin-bottom: 22px;
+  }
+  .settings {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .setting {
+    border: 1px solid color-mix(in srgb, CanvasText 25%, transparent);
+    border-radius: 14px;
+    padding: 12px;
+  }
+  .setting label {
+    display: block;
+    font-size: 14px;
+    opacity: .75;
+    margin-bottom: 6px;
+  }
+  .setting input {
+    width: 90px;
+    max-width: 100%;
+    text-align: center;
+    font-size: 28px;
+    font-weight: 800;
+    padding: 8px 6px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, CanvasText 35%, transparent);
+    background: Field;
+    color: FieldText;
+  }
+  .buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  button {
+    font-size: 20px;
+    font-weight: 700;
+    padding: 16px;
+    border-radius: 14px;
+    border: 1px solid;
+    background: ButtonFace;
+    color: ButtonText;
+  }
+  .wide { grid-column: 1 / -1; }
+  .option {
+    display: block;
+    margin-top: 20px;
+    font-size: 17px;
+  }
+  input[type="checkbox"] {
+    transform: scale(1.25);
+    margin-right: 8px;
+  }
+  .hint {
+    margin-top: 16px;
+    font-size: 14px;
+    opacity: .65;
+    line-height: 1.45;
+  }
+</style>
+</head>
+<body>
+<main class="card">
+  <div id="phase">READY</div>
+  <div id="time">40</div>
+  <div id="round">Round 1</div>
+
+  <div class="settings">
+    <div class="setting">
+      <label for="workSeconds">WORK seconds</label>
+      <input id="workSeconds" type="number" min="1" max="600" value="40" inputmode="numeric">
+    </div>
+    <div class="setting">
+      <label for="restSeconds">REST seconds</label>
+      <input id="restSeconds" type="number" min="1" max="600" value="20" inputmode="numeric">
+    </div>
+  </div>
+
+  <div class="buttons">
+    <button id="start">Start</button>
+    <button id="pause">Pause</button>
+    <button id="reset" class="wide">Reset / Apply Changes</button>
+  </div>
+
+  <label class="option">
+    <input id="speakAll" type="checkbox" checked>
+    Speak every second
+  </label>
+
+  <div class="hint">
+    Defaults to 40s work / 20s rest. Change either box, then tap <b>Reset / Apply Changes</b>.
+    The timer repeats until you stop it.
+  </div>
+</main>
+
+<script>
+(() => {
+  let work = 40;
+  let rest = 20;
+  let phase = 'work';
+  let remaining = work;
+  let round = 1;
+  let running = false;
+  let nextTick = 0;
+  let raf = null;
+
+  const phaseEl = document.getElementById('phase');
+  const timeEl = document.getElementById('time');
+  const roundEl = document.getElementById('round');
+  const workInput = document.getElementById('workSeconds');
+  const restInput = document.getElementById('restSeconds');
+  const speakAll = document.getElementById('speakAll');
+
+  function clampSeconds(value, fallback) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(1, Math.min(600, Math.round(n)));
+  }
+
+  function speak(text, important = false) {
+    if (!('speechSynthesis' in window)) return;
+    if (!important && !speakAll.checked) return;
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(String(text));
+    utterance.rate = important ? 1.2 : 1.85;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function render() {
+    if (!running && phase === 'work' && remaining === work && round === 1) {
+      phaseEl.textContent = 'READY';
+    } else {
+      phaseEl.textContent = phase === 'work' ? 'WORK' : 'REST';
+    }
+    timeEl.textContent = remaining;
+    roundEl.textContent = `Round ${round}`;
+  }
+
+  function applySettings() {
+    work = clampSeconds(workInput.value, 40);
+    rest = clampSeconds(restInput.value, 20);
+    workInput.value = work;
+    restInput.value = rest;
+    phase = 'work';
+    remaining = work;
+    round = 1;
+    render();
+  }
+
+  function tick() {
+    if (!running) return;
+    const now = performance.now();
+
+    if (now >= nextTick) {
+      remaining -= 1;
+
+      if (remaining <= 0) {
+        if (phase === 'work') {
+          phase = 'rest';
+          remaining = rest;
+          render();
+          speak('Rest', true);
+        } else {
+          phase = 'work';
+          round += 1;
+          remaining = work;
+          render();
+          speak('Work', true);
+        }
+      } else {
+        render();
+        speak(remaining);
+      }
+
+      nextTick += 1000;
+    }
+
+    raf = requestAnimationFrame(tick);
+  }
+
+  function start() {
+    if (running) return;
+    work = clampSeconds(workInput.value, work);
+    rest = clampSeconds(restInput.value, rest);
+
+    if (phase === 'work' && round === 1 && !running &&
+        (remaining !== work || remaining === 40 && work !== 40)) {
+      remaining = work;
+    }
+
+    running = true;
+    render();
+    speak(phase === 'work' ? 'Work' : 'Rest', true);
+    speak(remaining);
+    nextTick = performance.now() + 1000;
+    raf = requestAnimationFrame(tick);
+  }
+
+  function pause() {
+    running = false;
+    if (raf) cancelAnimationFrame(raf);
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    render();
+  }
+
+  function reset() {
+    pause();
+    applySettings();
+  }
+
+  document.getElementById('start').addEventListener('click', start);
+  document.getElementById('pause').addEventListener('click', pause);
+  document.getElementById('reset').addEventListener('click', reset);
+
+  render();
+})();
+</script>
+</body>
+</html>
