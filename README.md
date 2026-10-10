@@ -11,3 +11,7 @@ A simple repeating interval timer with spoken counting. It defaults to **40 seco
 Open the source in [`40-20-strength-timer/`](./40-20-strength-timer/).
 
 More tools will be added here over time.
+
+## Deployment
+
+This repository is set up for automatic deployment to GitHub Pages from `main` using GitHub Actions.
